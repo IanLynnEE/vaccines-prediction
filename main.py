@@ -1,13 +1,13 @@
 import argparse
 
 import pandas as pd
-import numpy as np                                                  # noqa: F401
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler      # noqa: F401
 from sklearn.metrics import roc_auc_score
-from sklearn.ensemble import RandomForestClassifier
+import torch
 
 from preprocessing import read_and_encode, impute_features
+from models import NeuralNet
 
 
 def main(args):
@@ -29,19 +29,23 @@ def main(args):
     x = features_scaler.transform(x)
     xt = features_scaler.transform(xt)
 
-    # RandomForestClassifier supports multi-output classification.
-    clf = RandomForestClassifier(
-        n_estimators=1000,
-        max_features='sqrt',
-        n_jobs=6
-    )
-    clf.fit(x, y)
-    yp = clf.predict_proba(xt)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    criterion = torch.nn.CrossEntropyLoss()
+    model_h1n1 = NeuralNet(35, 70, 2).to(device)
+    model_seasonal = NeuralNet(35, 70, 2).to(device)
+
+    optimizer = torch.optim.Adam(model_h1n1.parameters(), lr=args.learning_rate)
+    train(x, y[:, 0], model_h1n1, criterion, optimizer, device, args.epochs)
+    yp0 = predict_proba(xt, model_h1n1, device)
+
+    optimizer = torch.optim.Adam(model_seasonal.parameters(), lr=args.learning_rate)
+    train(x, y[:, 1], model_seasonal, criterion, optimizer, device, args.epochs)
+    yp1 = predict_proba(xt, model_seasonal, device)
 
     yp = pd.DataFrame(
         {
-            'h1n1_vaccine': yp[0][:, 1],
-            'seasonnal_vaccine': yp[1][:, 1]
+            'h1n1_vaccine': yp0[:, 1],
+            'seasonal_vaccine': yp1[:, 1]
         },
         index=xt_df.index
     )
@@ -54,10 +58,32 @@ def main(args):
         yp.to_csv('submission.csv', index=False)
 
 
+def train(x, y, model, criterion, optimizer, device, epochs):
+    features = torch.from_numpy(x).to(device)
+    labels = torch.from_numpy(y).to(device)
+
+    for epoch in range(epochs):
+        output = model(features.float())
+        loss = criterion(output, labels)
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+
+def predict_proba(xt, model, device):
+    with torch.no_grad():
+        features = torch.from_numpy(xt).to(device)
+        prob = model(features.float())
+    return prob.cpu().detach().numpy()
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-m', '--mode', type=str, default='evaluate')
     parser.add_argument('-s', '--strategy', type=str, default='mean')
+    parser.add_argument('-e', '--epochs', type=int, default=100)
+    parser.add_argument('-l', '--learning_rate', type=float, default=0.01)
     args = parser.parse_args()
 
     main(args)
