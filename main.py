@@ -41,7 +41,7 @@ def main(args):
     yp = pd.DataFrame(
         {
             'h1n1_vaccine': yp[0][:, 1],
-            'seasonnal_vaccine': yp[1][:, 1]
+            'seasonal_vaccine': yp[1][:, 1]
         },
         index=xt_df.index
     )
