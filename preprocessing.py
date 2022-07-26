@@ -32,7 +32,7 @@ def read_and_encode(filename: str) -> pd.DataFrame:
     census_map = {'Non-MSA': 0, 'MSA, Not Principle  City': 1, 'MSA, Principle City': 2}
 
     # TODO The following 4 features should be encoded more carefully.
-    race_map = {'black': 0, 'Hispanic': 1, 'Other or Multiple': 2, 'white': 3}
+    race_map = {'Black': 0, 'Hispanic': 1, 'Other or Multiple': 2, 'White': 3}
     hhs_map = df.hhs_geo_region.value_counts().to_dict()
     industry_map = df.employment_industry.value_counts().to_dict()
     occupation_map = df.employment_occupation.value_counts().to_dict()
