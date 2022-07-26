@@ -1,5 +1,6 @@
 import argparse
 
+import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler      # noqa: F401
@@ -17,6 +18,7 @@ def main(args):
     xt_df = read_and_encode('data/test_set_features.csv')
     if args.mode == 'evaluate':
         x_df, xt_df, y_df, yt_df = train_test_split(x_df, y_df, test_size=0.2, random_state=9)
+        yt = yt_df.drop(columns='respondent_id').to_numpy()
 
     x_df, xt_df = impute_features(x_df, xt_df, strategy='mean', known_test=False)
 
@@ -31,15 +33,15 @@ def main(args):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     criterion = torch.nn.CrossEntropyLoss()
-    model_h1n1 = NeuralNet(35, 70, 2).to(device)
-    model_seasonal = NeuralNet(35, 70, 2).to(device)
+    model_h1n1 = NeuralNet(35, 70, 70, 2).to(device)
+    model_seasonal = NeuralNet(35, 70, 70, 2).to(device)
 
     optimizer = torch.optim.Adam(model_h1n1.parameters(), lr=args.learning_rate)
-    train(x, y[:, 0], model_h1n1, criterion, optimizer, device, args.epochs)
+    train(x, y[:, 0], xt, yt[:, 0],  model_h1n1, criterion, optimizer, device, args.epochs)
     yp0 = predict_proba(xt, model_h1n1, device)
 
     optimizer = torch.optim.Adam(model_seasonal.parameters(), lr=args.learning_rate)
-    train(x, y[:, 1], model_seasonal, criterion, optimizer, device, args.epochs)
+    train(x, y[:, 1], xt, yt[:, 1], model_seasonal, criterion, optimizer, device, args.epochs)
     yp1 = predict_proba(xt, model_seasonal, device)
 
     yp = pd.DataFrame(
@@ -58,20 +60,30 @@ def main(args):
         yp.to_csv('submission.csv', index=False)
 
 
-def train(x, y, model, criterion, optimizer, device, epochs):
-    features = torch.from_numpy(x).to(device)
-    labels = torch.from_numpy(y).to(device)
+def train(x, y, xv, yv, model, criterion, optimizer, device, epochs) -> tuple[list, list]:
+    t_features = torch.from_numpy(x).to(device).float()
+    t_labels = torch.from_numpy(y).to(device)
+    t_loss = [0 for _ in range(epochs)]
+    v_features = torch.from_numpy(xv).to(device).float()
+    v_labels = torch.from_numpy(yv).to(device)
+    v_loss = [0 for _ in range(epochs)]
 
     for epoch in range(epochs):
-        output = model(features.float())
-        loss = criterion(output, labels)
-
+        model.train()
+        output = model(t_features)
+        loss = criterion(output, t_labels)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
+        model.eval()
+        output = model(v_features)
+        v_loss[epoch] = criterion(output, v_labels)
+        t_loss[epoch] = loss
+    return t_loss, v_loss
+        
 
-def predict_proba(xt, model, device):
+def predict_proba(xt, model, device) -> np.ndarray:
     with torch.no_grad():
         features = torch.from_numpy(xt).to(device)
         prob = model(features.float())
