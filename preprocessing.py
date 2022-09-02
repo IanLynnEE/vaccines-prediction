@@ -1,5 +1,6 @@
 import pandas as pd
-from sklearn.impute import SimpleImputer
+from sklearn.experimental import enable_iterative_imputer   # noqa: F401
+from sklearn.impute import SimpleImputer, KNNImputer, IterativeImputer
 
 
 def test():
@@ -32,10 +33,24 @@ def read_and_encode(filename: str) -> pd.DataFrame:
     census_map = {'Non-MSA': 0, 'MSA, Not Principle  City': 1, 'MSA, Principle City': 2}
 
     # TODO The following 4 features should be encoded more carefully.
-    race_map = {'Black': 0, 'Hispanic': 1, 'Other or Multiple': 2, 'White': 3}
+    # race_map = {'Black': 0, 'Hispanic': 1, 'Other or Multiple': 2, 'White': 3}
+    race_map = df.race.value_counts().to_dict()
     hhs_map = df.hhs_geo_region.value_counts().to_dict()
+
+    for i, row in df.iterrows():
+        if pd.isna(row['employment_industry']) and pd.isna(row['employment_occupation']):
+            if row['employment_status'] == 'Unemployed':
+                df.at[i, 'employment_industry'] = 'NO_job'
+                df.at[i, 'employment_occupation'] = 'NO_job'
+            if row['employment_status'] == 'Not in Labor Force':
+                df.at[i, 'employment_industry'] = 'Not_in_Labor_Force'
+                df.at[i, 'employment_occupation'] = 'Not_in_Labor_Force'
+    df['employment_industry'].fillna(value='Not Found', inplace=True)
+    df['employment_occupation'].fillna(value='Not Found', inplace=True)
+
     industry_map = df.employment_industry.value_counts().to_dict()
     occupation_map = df.employment_occupation.value_counts().to_dict()
+    # END of the comment above.
 
     df.age_group = df.age_group.map(age_map)
     df.education = df.education.map(edu_map)
@@ -65,14 +80,24 @@ def impute_features(x: pd.DataFrame, xt: pd.DataFrame,
     Returns:
         tuple[pd.DataFrame, pd.DataFrame]: Training set and test set.
     """
-    # TODO For most of the features, it makes sense to use "mean", "median" or "most_frequent".
-    # However, it might be better to directly assign values for some of the features.
-    # Moreover, we should try to compute different means for different races/ages/education levels as well.
-    imp = SimpleImputer(strategy=strategy, copy=True)
-    imp.fit(x)
+    # TESTING
+    # df['health_insurance'].fillna(value='0.5', inplace=True)
+
+    # TESTING
+    # df['income_poverty'].fillna(value='0.8', inplace=True)
+
+    if (strategy == 'KNN'):
+        imp = KNNImputer(n_neighbors=5)
+    elif (strategy == 'Iterative'):
+        imp = IterativeImputer(random_state=9, max_iter=10, initial_strategy='most_frequent')
+    else:
+        imp = SimpleImputer(strategy=strategy, copy=True)
+
     if known_test:
         data = pd.concat([x, xt], axis=0, ignore_index=True)
         imp.fit(data)
+    else:
+        imp.fit(x)
     return pd.DataFrame(imp.transform(x), columns=x.columns), pd.DataFrame(imp.transform(xt), columns=xt.columns)
 
 
