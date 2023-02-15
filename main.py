@@ -2,7 +2,8 @@ import argparse
 import os
 
 import pandas as pd
-import numpy as np                                                  # noqa: F401
+import numpy as np
+import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler      # noqa: F401
 from sklearn.metrics import roc_auc_score
@@ -20,13 +21,21 @@ def main():
 
     train_df, test_df = get_data(args)
 
+    h1n1 = train_df['h1n1_vaccine']
+    seasonal = train_df['seasonal_vaccine']
+    print(np.count_nonzero(h1n1 != seasonal))
+    print(np.count_nonzero(h1n1 > seasonal))
+    print(np.count_nonzero(h1n1 < seasonal))
+    print(train_df.shape)
+
     # On test set, we may need the result of h1n1/seasonal before predicting seasonal/h1n1, depending on the setting.
     # The following function will try to insert the prediction result of h1n1/seasonal into test_df if needed.
     if insert_predict_result(test_df, args) == False:
+        print('Fail to insert prediction result. Program aborted.')
         return
 
-    x, y = select_prediction_target(train_df, vaccine=args.vaccine)
-    xt, yt = select_prediction_target(test_df, vaccine=args.vaccine)
+    x, y, feature_names = select_prediction_target(train_df, vaccine=args.vaccine)
+    xt, yt, _ = select_prediction_target(test_df, vaccine=args.vaccine)
 
     clf = RandomForestClassifier(
         n_estimators=1000,
@@ -34,11 +43,58 @@ def main():
         n_jobs=6
     )
     clf.fit(x, y)
-    yp = clf.predict_proba(xt)
+    yp = clf.predict_proba(xt)[:,1]
+
+    # fig = plt.figure()
+    # importances = pd.Series(clf.feature_importances_, index=feature_names)
+    # importances.plot.bar()
+    # plt.title(f'{args.vaccine}\nwith h1n1 as ground truth')
+    # plt.xticks(rotation=45, ha='right')
+    # plt.xlabel('Features')
+    # plt.ylabel('Importances')
+    # fig.subplots_adjust(bottom=0.3)
+    # plt.show()
+
     if args.mode == 'evaluate':
-        print(roc_auc_score(yt, yp[:, 1]))
+        print(f'AUROC for {args.vaccine} : {roc_auc_score(yt, yp)}')
     else:
-        write_result(yp[:, 1], args)
+        write_result(yp, args.vaccine)
+
+    # Training cascade without ground truth
+    if args.vaccine == 'seasonal':
+        new_feat = clf.predict_proba(x)[:, 1]
+        x, y, _ = select_prediction_target(train_df, vaccine='h1n1')
+        xt, yt, _ = select_prediction_target(test_df, vaccine='h1n1')
+        x = np.column_stack((x, new_feat))
+        xt = np.column_stack((xt, yp))
+    elif args.vaccine == 'h1n1':
+        new_feat = clf.predict_proba(x)[:, 1]
+        x, y, _ = select_prediction_target(train_df, vaccine='seasonal')
+        xt, yt, _ = select_prediction_target(test_df, vaccine='seasonal')
+        x = np.column_stack((x, new_feat))
+        xt = np.column_stack((xt, yp))
+    else:
+        return
+
+    clf.fit(x, y)
+    yp = clf.predict_proba(xt)[:, 1]
+
+    # plt.clf()
+    # fig = plt.figure()
+    # feature_names = feature_names.append(pd.Index([args.vaccine]))
+    # importances = pd.Series(clf.feature_importances_, index=feature_names)
+    # importances.plot.bar()
+    # plt.title(f'seasonal_from_h1n1\nwithout using ground truth of h1n1')
+    # plt.xticks(rotation=45, ha='right')
+    # plt.xlabel('Features')
+    # plt.ylabel('Importances')
+    # fig.subplots_adjust(bottom=0.3)
+    # plt.show()
+
+    if args.mode == 'evaluate':
+        print(f'AUROC for using {args.vaccine} as a feature: {roc_auc_score(yt, yp)}')
+    else:
+        write_result(yp, 'seasonal')
     return
 
 
@@ -75,20 +131,20 @@ def select_prediction_target(data, vaccine):
     if vaccine == 'h1n1':
         # Train with standard features
         y = data['h1n1_vaccine'].to_numpy()
-        x = data.drop(columns=['h1n1_vaccine', 'seasonal_vaccine']).to_numpy()
+        x = data.drop(columns=['h1n1_vaccine', 'seasonal_vaccine'])
     elif vaccine == 'seasonal':
         # Train with standard features
         y = data['seasonal_vaccine'].to_numpy()
-        x = data.drop(columns=['h1n1_vaccine', 'seasonal_vaccine']).to_numpy()
+        x = data.drop(columns=['h1n1_vaccine', 'seasonal_vaccine'])
     elif vaccine == 'h1n1_from_seasonal':
         # Train with the result of seasonal
         y = data['h1n1_vaccine'].to_numpy()
-        x = data.drop(columns=['h1n1_vaccine']).to_numpy()
+        x = data.drop(columns=['h1n1_vaccine'])
     elif vaccine == 'seasonal_from_h1n1':
         # Train with the result of h1n1
         y = data['seasonal_vaccine'].to_numpy()
-        x = data.drop(columns=['seasonal_vaccine']).to_numpy()
-    return x, y
+        x = data.drop(columns=['seasonal_vaccine'])
+    return x.to_numpy(), y, x.columns
 
 
 def insert_predict_result(test_df, args):
@@ -109,16 +165,16 @@ def insert_predict_result(test_df, args):
     return True
 
 
-def write_result(yp, args):
+def write_result(yp, vaccine):
     old_data = pd.DataFrame()
     if os.path.exists('submission.csv'):
         old_data = pd.read_csv('submission.csv')
-    if args.vaccine == 'h1n1' or args.vaccine == 'h1n1_from_seasonal':
+    if vaccine == 'h1n1' or vaccine == 'h1n1_from_seasonal':
         if 'h1n1_vaccine' in old_data.columns:
             if input('Overwrite the result of the h1n1 prediction? [y/n]: ') != 'y':
                 return
         old_data['h1n1_vaccine'] = yp
-    if args.vaccine == 'seasonal' or args.vaccine == 'seasonal_from_h1n1':
+    if vaccine == 'seasonal' or vaccine == 'seasonal_from_h1n1':
         if 'seasonal_vaccine' in old_data.columns:
             if input('Overwrite the result of the seasonal prediction? [y/n]: ') != 'y':
                 return

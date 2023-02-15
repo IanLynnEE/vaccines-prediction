@@ -13,8 +13,7 @@ def test():
 
 
 def read_and_encode(filename: str) -> pd.DataFrame:
-    """Read a file and encode the string objects to numbers. NaN will be retained.
-
+    """Read a file and encode the string objects to numbers. NaN will be retained for most of the features.
     Args:
         filename (str): Path to the file.
 
@@ -81,10 +80,12 @@ def impute_features(x: pd.DataFrame, xt: pd.DataFrame,
         tuple[pd.DataFrame, pd.DataFrame]: Training set and test set.
     """
     # TESTING
-    # df['health_insurance'].fillna(value='0.5', inplace=True)
+    # x['health_insurance'].fillna(value=0.5, inplace=True)
+    # xt['health_insurance'].fillna(value=0.5, inplace=True)
 
     # TESTING
-    # df['income_poverty'].fillna(value='0.8', inplace=True)
+    # x['income_poverty'].fillna(value=0.8, inplace=True)
+    # xt['income_poverty'].fillna(value=0.8, inplace=True)
 
     if (strategy == 'KNN'):
         imp = KNNImputer(n_neighbors=5)
