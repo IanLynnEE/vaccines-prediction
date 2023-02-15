@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler      # noqa: F401
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, accuracy_score
 import torch
 
 from preprocessing import read_and_encode, impute_features
@@ -32,13 +32,18 @@ def main(args):
     xt = features_scaler.transform(xt)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    criterion = torch.nn.CrossEntropyLoss()
-    model_h1n1 = NeuralNet(35, 70, 70, 2).to(device)
-    model_seasonal = NeuralNet(35, 70, 70, 2).to(device)
+    criterion = torch.nn.MSELoss()
+    model_h1n1 = NeuralNet().to(device)
+    model_seasonal = NeuralNet().to(device)
 
     optimizer = torch.optim.Adam(model_h1n1.parameters(), lr=args.learning_rate)
     train(x, y[:, 0], xt, yt[:, 0],  model_h1n1, criterion, optimizer, device, args.epochs)
     yp0 = predict_proba(xt, model_h1n1, device)
+
+    # Check acc
+    if args.mode ==  'evaluate':
+        yp_label = np.round(yp0)
+        print('Accuracy of h1n1_vaccine: ', accuracy_score(yt[:, 0], yp_label))
 
     optimizer = torch.optim.Adam(model_seasonal.parameters(), lr=args.learning_rate)
     train(x, y[:, 1], xt, yt[:, 1], model_seasonal, criterion, optimizer, device, args.epochs)
@@ -46,8 +51,8 @@ def main(args):
 
     yp = pd.DataFrame(
         {
-            'h1n1_vaccine': yp0[:, 1],
-            'seasonal_vaccine': yp1[:, 1]
+            'h1n1_vaccine': yp0,
+            'seasonal_vaccine': yp1
         },
         index=xt_df.index
     )
@@ -62,10 +67,10 @@ def main(args):
 
 def train(x, y, xv, yv, model, criterion, optimizer, device, epochs) -> tuple[list, list]:
     t_features = torch.from_numpy(x).to(device).float()
-    t_labels = torch.from_numpy(y).to(device)
+    t_labels = torch.from_numpy(y).to(device).float()
     t_loss = [0 for _ in range(epochs)]
     v_features = torch.from_numpy(xv).to(device).float()
-    v_labels = torch.from_numpy(yv).to(device)
+    v_labels = torch.from_numpy(yv).to(device).float()
     v_loss = [0 for _ in range(epochs)]
 
     for epoch in range(epochs):

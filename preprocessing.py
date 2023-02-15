@@ -34,6 +34,18 @@ def read_and_encode(filename: str) -> pd.DataFrame:
     # TODO The following 4 features should be encoded more carefully.
     race_map = {'Black': 0, 'Hispanic': 1, 'Other or Multiple': 2, 'White': 3}
     hhs_map = df.hhs_geo_region.value_counts().to_dict()
+
+    for i, row in df.iterrows():
+        if pd.isna(row['employment_industry']) and pd.isna(row['employment_occupation']):
+            if row['employment_status'] == 'Unemployed':
+                df.at[i, 'employment_industry'] = 'NO_job'
+                df.at[i, 'employment_occupation'] = 'NO_job'
+            if row['employment_status'] == 'Not in Labor Force':
+                df.at[i, 'employment_industry'] = 'Not_in_Labor_Force'
+                df.at[i, 'employment_occupation'] = 'Not_in_Labor_Force'
+    df['employment_industry'].fillna(value='Not Found', inplace=True)
+    df['employment_occupation'].fillna(value='Not Found', inplace=True)
+
     industry_map = df.employment_industry.value_counts().to_dict()
     occupation_map = df.employment_occupation.value_counts().to_dict()
 
